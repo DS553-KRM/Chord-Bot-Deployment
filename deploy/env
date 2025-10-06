@@ -22,6 +22,7 @@ CHORD_BOT_API_LOG_DIR="/var/log/chord-bot-api"
 # API host/port (adjust to your app)
 API_HOST="0.0.0.0"
 API_PORT="8000"
+CHORD_BOT_PORT="7861"
 
 # Command to start Chord-Bot (local app)
 CHORD_BOT_START_CMD="python app.py"

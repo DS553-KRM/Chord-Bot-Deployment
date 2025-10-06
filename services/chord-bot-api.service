@@ -1,15 +1,18 @@
 [Unit]
-Description=Chord-Bot API (FastAPI/Flask)
+Description=Chord-Bot API (Gradio)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
+Type=simple
 User={{RUN_AS_USER}}
 WorkingDirectory={{CHORD_BOT_API_DIR}}
 ExecStart=/bin/bash -lc 'exec {{CHORD_BOT_API_VENV}}/bin/python app.py'
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
+Environment=GRADIO_SERVER_NAME=0.0.0.0
+Environment=GRADIO_SERVER_PORT={{API_PORT}}
 StandardOutput=append:{{CHORD_BOT_API_LOG_DIR}}/stdout.log
 StandardError=append:{{CHORD_BOT_API_LOG_DIR}}/stderr.log
 

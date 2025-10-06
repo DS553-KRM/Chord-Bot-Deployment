@@ -13,12 +13,15 @@ render() {
       -e "s|{{CHORD_BOT_VENV}}|${CHORD_BOT_VENV}|g" \
       -e "s|{{CHORD_BOT_START_CMD}}|${CHORD_BOT_START_CMD}|g" \
       -e "s|{{CHORD_BOT_LOG_DIR}}|${CHORD_BOT_LOG_DIR}|g" \
+      -e "s|{{CHORD_BOT_PORT}}|${CHORD_BOT_PORT}|g" \
       -e "s|{{CHORD_BOT_API_DIR}}|${CHORD_BOT_API_DIR}|g" \
       -e "s|{{CHORD_BOT_API_VENV}}|${CHORD_BOT_API_VENV}|g" \
       -e "s|{{CHORD_BOT_API_START_CMD}}|${CHORD_BOT_API_START_CMD}|g" \
       -e "s|{{CHORD_BOT_API_LOG_DIR}}|${CHORD_BOT_API_LOG_DIR}|g" \
+      -e "s|{{API_PORT}}|${API_PORT}|g" \
       < "$src" > "$dst"
 }
+
 
 render ../services/chord-bot.service /etc/systemd/system/chord-bot.service
 render ../services/chord-bot-api.service /etc/systemd/system/chord-bot-api.service
