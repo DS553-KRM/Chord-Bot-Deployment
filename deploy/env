@@ -1,6 +1,6 @@
 # === Application configuration ===
-CHORD_BOT_REPO_URL="https://github.com/DS553-KRM/Chord-Bot.git"
-CHORD_BOT_API_REPO_URL="https://github.com/DS553-KRM/Chord-Bot-API.git"
+CHORD_BOT_REPO_URL="ssh://git@github.com-chord-bot/DS553-KRM/Chord-Bot.git"
+CHORD_BOT_API_REPO_URL="ssh://git@github.com-chord-bot-api/DS553-KRM/Chord-Bot-API.git"
 
 # Choose branches
 CHORD_BOT_BRANCH="main"
