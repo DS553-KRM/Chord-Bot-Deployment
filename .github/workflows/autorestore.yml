@@ -1,0 +1,50 @@
+name: Auto Restore VM
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "*/5 * * * *"   # every 5 minutes
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out (only to print version / not required)
+        uses: actions/checkout@v4
+
+      - name: Start SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: |
+            ${{ secrets.VM_SSH_PRIVATE_KEY }}
+
+      - name: Add known_hosts (github + VM)
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H github.com >> ~/.ssh/known_hosts
+          ssh-keyscan -H ${{ secrets.VM_HOST }} >> ~/.ssh/known_hosts || true
+
+      - name: Probe VM SSH (non-fatal)
+        id: probe
+        continue-on-error: true
+        run: |
+          set -e
+          ssh -o BatchMode=yes -o ConnectTimeout=10 -p "${{ secrets.VM_PORT }}" \
+            "${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}" 'echo "OK"'
+
+      - name: Exit early if VM is offline
+        if: steps.probe.outcome != 'success'
+        run: |
+          echo "VM unreachable; will retry on next schedule."
+          exit 0
+
+      - name: Run quickstart (idempotent, no prompts)
+        run: |
+          ssh -o BatchMode=yes -p "${{ secrets.VM_PORT }}" \
+            "${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}" '
+              set -Eeuo pipefail
+              # curl the quickstart from GitHub and execute
+              bash -lc "
+                curl -fsSL https://raw.githubusercontent.com/DS553-KRM/Chord-Bot-Deployment/main/deploy/quickstart.sh | bash
+              "
+            '
