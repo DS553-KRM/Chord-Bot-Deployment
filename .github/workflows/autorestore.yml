@@ -7,7 +7,7 @@ on:
 
 jobs:
   restore:
-    runs-on: [self-hosted, autorestore]   # must match the label you chose when configuring the runner
+    runs-on: [self-hosted, linux, X64]   # must match the label you chose when configuring the runner
     steps:
       - name: Probe VM with local SSH keys
         env:
