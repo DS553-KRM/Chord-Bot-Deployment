@@ -1,0 +1,8 @@
+[Unit]
+Description=Chord-Bot automated recovery
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -lc '/opt/deployment/deploy/recover.sh'
