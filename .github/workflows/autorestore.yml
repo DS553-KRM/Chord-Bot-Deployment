@@ -9,26 +9,31 @@ jobs:
   restore:
     runs-on: ubuntu-latest
     steps:
-      - name: Write SSH keys & known_hosts
+      - name: Write SSH keys & known_hosts (no heredoc)
+        env:
+          PRIMARY_KEY:  ${{ secrets.VM_SSH_PRIVATE_KEY_PRIMARY }}
+          FALLBACK_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY_FALLBACK }}
+          HOST:         ${{ secrets.VM_HOST }}
         run: |
           set -e
           mkdir -p ~/.ssh
           umask 077
-          cat > ~/.ssh/id_vm_primary <<'KEY'
-${{ secrets.VM_SSH_PRIVATE_KEY_PRIMARY }}
-KEY
-          cat > ~/.ssh/id_vm_fallback <<'KEY'
-${{ secrets.VM_SSH_PRIVATE_KEY_FALLBACK }}
-KEY
+          # write raw multiline OpenSSH keys from env
+          printf "%s" "$PRIMARY_KEY"  > ~/.ssh/id_vm_primary
+          printf "%s" "$FALLBACK_KEY" > ~/.ssh/id_vm_fallback
           ssh-keyscan -H github.com >> ~/.ssh/known_hosts
-          ssh-keyscan -H ${{ secrets.VM_HOST }} >> ~/.ssh/known_hosts || true
+          ssh-keyscan -H "$HOST"   >> ~/.ssh/known_hosts || true
 
       - name: Pick working key (try PRIMARY then FALLBACK)
         id: pickkey
+        env:
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_PORT: ${{ secrets.VM_PORT }}
+          VM_USER: ${{ secrets.VM_USER }}
         run: |
           set -e
-          SSH="ssh -o BatchMode=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -p ${{ secrets.VM_PORT }}"
-          HOST="${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}"
+          SSH="ssh -o BatchMode=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -p ${VM_PORT}"
+          HOST="${VM_USER}@${VM_HOST}"
           echo "Trying PRIMARY..."
           if $SSH -i ~/.ssh/id_vm_primary "$HOST" 'echo OK'; then
             echo "selected=primary" >> "$GITHUB_OUTPUT"
@@ -43,16 +48,20 @@ KEY
 
       - name: Ensure PRIMARY pubkey if we used FALLBACK
         if: steps.pickkey.outputs.selected == 'fallback'
+        env:
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_PORT: ${{ secrets.VM_PORT }}
+          VM_USER: ${{ secrets.VM_USER }}
+          PRIMARY_PUB: ${{ secrets.VM_SSH_PUBLIC_KEY_PRIMARY }}
         run: |
           set -e
-          SSH="ssh -o BatchMode=yes -o ConnectTimeout=15 -o IdentitiesOnly=yes -p ${{ secrets.VM_PORT }}"
-          HOST="${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}"
+          SSH="ssh -o BatchMode=yes -o ConnectTimeout=15 -o IdentitiesOnly=yes -p ${VM_PORT}"
+          HOST="${VM_USER}@${VM_HOST}"
           $SSH -i ~/.ssh/id_vm_fallback "$HOST" "bash -lc '
             set -Eeuo pipefail
             mkdir -p ~/.ssh
             touch ~/.ssh/authorized_keys
-            grep -qF \"${{ secrets.VM_SSH_PUBLIC_KEY_PRIMARY }}\" ~/.ssh/authorized_keys || \
-              echo \"${{ secrets.VM_SSH_PUBLIC_KEY_PRIMARY }}\" >> ~/.ssh/authorized_keys
+            grep -qF \"$PRIMARY_PUB\" ~/.ssh/authorized_keys || echo \"$PRIMARY_PUB\" >> ~/.ssh/authorized_keys
             chmod 700 ~/.ssh
             chmod 600 ~/.ssh/authorized_keys
           '"
@@ -60,13 +69,16 @@ KEY
       - name: Run quickstart (idempotent)
         if: steps.pickkey.outputs.selected == 'primary' || steps.pickkey.outputs.selected == 'fallback'
         env:
-          KEYSEL: ${{ steps.pickkey.outputs.selected }}
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_PORT: ${{ secrets.VM_PORT }}
+          VM_USER: ${{ secrets.VM_USER }}
+          KEYSEL:  ${{ steps.pickkey.outputs.selected }}
           VM_SUDO_PASSWORD: ${{ secrets.VM_SUDO_PASSWORD }}
         run: |
           set -e
           KEYFILE="$HOME/.ssh/id_vm_${KEYSEL}"
-          SSH="ssh -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=6 -o IdentitiesOnly=yes -p ${{ secrets.VM_PORT }}"
-          HOST="${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}"
+          SSH="ssh -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=6 -o IdentitiesOnly=yes -p ${VM_PORT}"
+          HOST="${VM_USER}@${VM_HOST}"
           $SSH -i "$KEYFILE" "$HOST" 'bash -lc "
             set -Eeuo pipefail
             echo [QS] fetch quickstart
@@ -89,11 +101,15 @@ KEY
 
       - name: Probe services
         if: steps.pickkey.outputs.selected == 'primary' || steps.pickkey.outputs.selected == 'fallback'
+        env:
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_PORT: ${{ secrets.VM_PORT }}
+          VM_USER: ${{ secrets.VM_USER }}
         run: |
           set -e
           KEYFILE="$HOME/.ssh/id_vm_${{ steps.pickkey.outputs.selected }}"
-          SSH="ssh -o BatchMode=yes -o IdentitiesOnly=yes -p ${{ secrets.VM_PORT }}"
-          HOST="${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}"
+          SSH="ssh -o BatchMode=yes -o IdentitiesOnly=yes -p ${VM_PORT}"
+          HOST="${VM_USER}@${VM_HOST}"
           $SSH -i "$KEYFILE" "$HOST" 'bash -lc "
             sudo systemctl --no-pager status chord-bot-api.service || true
             sudo ss -tulpn | grep -E \":(8000|7861)\\b\" || true
