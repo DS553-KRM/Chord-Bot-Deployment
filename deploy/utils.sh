@@ -1,6 +1,3 @@
-cd /opt/deployment/Chord-Bot-Deployment/deploy
-
-cat > utils.sh <<'EOF'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
@@ -44,6 +41,3 @@ create_venv_and_install() {
     sudo -u "${RUN_AS_USER}" bash -lc "source '${venv_dir}/bin/activate' && pip install -e '${app_dir}'"
   fi
 }
-EOF
-
-chmod +x utils.sh
