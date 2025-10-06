@@ -39,7 +39,8 @@ RUN_AS_USER="student-admin"
 
 # SSH key deploy (public key content or path)
 SSH_PUBKEYS=(
-	"ssh-ed25519  AAAAC3NzaC1lZDI1NTE5AAAAINRCI4QSdnw8iZzDf/uFtQXtkwiD8+XRw44+1LPLyd5/ ricky@Ricky-Framework "
+	"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINRCI4QSdnw8iZzDf/uFtQXtkwiD8+XRw44+1LPLyd5/ ricky@Ricky-Framework "
 	"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP1RJQA4ZyYoL8Yx1ondJ7f03CX8+NPr7tQ1qrhefVwS wpiguest@DESKTOP-3QPK3QT"
 	"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEGiUyvE91cKtWcCXbqxp0xLHVPl1Wb1oTfdQ3C7+hH2 cubin@KrishLaptop"
+	"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEbtnRdXsrQdo5aQQFe0zz7C7IxJ53b39BdAFZYcY6uI restore-primary-student-admin@group7"
 )
