@@ -4,10 +4,9 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=simple
 User={{RUN_AS_USER}}
 WorkingDirectory={{CHORD_BOT_API_DIR}}
-ExecStart={{CHORD_BOT_API_VENV}}/bin/bash -lc '{{CHORD_BOT_API_START_CMD}}'
+ExecStart=/bin/bash -lc 'exec {{CHORD_BOT_API_VENV}}/bin/python app.py'
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
