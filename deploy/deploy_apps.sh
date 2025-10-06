@@ -16,6 +16,7 @@ ensure_dir() {
 
 sync_repo() {
   local repo_url="$1" dest="$2" branch="$3"
+
   ensure_dir "$(dirname "$dest")"
 
   if [[ -d "$dest/.git" ]]; then
@@ -25,20 +26,17 @@ sync_repo() {
     sudo -u "${RUN_AS_USER}" git -C "$dest" reset --hard "origin/$branch"
     sudo -u "${RUN_AS_USER}" git -C "$dest" clean -fdx
   else
+    if [[ -e "$dest" ]]; then
+      log "[GIT] $dest exists but is not a repo -> removing"
+      sudo rm -rf "$dest"
+    fi
     log "[GIT] Fresh clone $repo_url -> $dest"
-    # unique tmp dir per call; always clean afterward
-    local tmpdir
-    tmpdir="$(mktemp -d -t repo.clone.XXXXXXXX)"  # e.g., /tmp/repo.clone.ABC12345
-    trap 'rm -rf "$tmpdir"' RETURN
-
-    # in case mktemp returned an existing non-empty dir (paranoid)
-    rm -rf "$tmpdir" && mkdir -p "$tmpdir"
-
-    sudo -u "${RUN_AS_USER}" git clone --depth=1 --branch "$branch" "$repo_url" "$tmpdir/repo"
-    rsync -a --delete "$tmpdir/repo"/ "$dest"/
-    sudo chown -R "${RUN_AS_USER}:${RUN_AS_USER}" "$dest"
+    sudo -u "${RUN_AS_USER}" git clone --depth=1 --branch "$branch" "$repo_url" "$dest"
   fi
+
+  sudo chown -R "${RUN_AS_USER}:${RUN_AS_USER}" "$dest"
 }
+
 
 
 ensure_venv_and_requirements() {
