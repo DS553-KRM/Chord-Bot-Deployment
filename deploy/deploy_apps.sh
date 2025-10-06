@@ -17,6 +17,7 @@ ensure_dir() {
 sync_repo() {
   local repo_url="$1" dest="$2" branch="$3"
   ensure_dir "$(dirname "$dest")"
+
   if [[ -d "$dest/.git" ]]; then
     log "[GIT] Updating $dest from $branch"
     sudo -u "${RUN_AS_USER}" git -C "$dest" remote set-url origin "$repo_url" || true
@@ -25,14 +26,20 @@ sync_repo() {
     sudo -u "${RUN_AS_USER}" git -C "$dest" clean -fdx
   else
     log "[GIT] Fresh clone $repo_url -> $dest"
-    # Clone to a temp dir then rsync into place (atomic + idempotent)
-    tmpdir="$(mktemp -d)"
-    sudo -u "${RUN_AS_USER}" git clone --depth=1 --branch "$branch" "$repo_url" "$tmpdir"
-    rsync -a --delete "$tmpdir"/ "$dest"/
-    rm -rf "$tmpdir"
+    # unique tmp dir per call; always clean afterward
+    local tmpdir
+    tmpdir="$(mktemp -d -t repo.clone.XXXXXXXX)"  # e.g., /tmp/repo.clone.ABC12345
+    trap 'rm -rf "$tmpdir"' RETURN
+
+    # in case mktemp returned an existing non-empty dir (paranoid)
+    rm -rf "$tmpdir" && mkdir -p "$tmpdir"
+
+    sudo -u "${RUN_AS_USER}" git clone --depth=1 --branch "$branch" "$repo_url" "$tmpdir/repo"
+    rsync -a --delete "$tmpdir/repo"/ "$dest"/
     sudo chown -R "${RUN_AS_USER}:${RUN_AS_USER}" "$dest"
   fi
 }
+
 
 ensure_venv_and_requirements() {
   local app_dir="$1" venv_dir="$2"
