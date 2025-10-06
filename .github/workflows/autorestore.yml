@@ -1,98 +1,101 @@
-- name: Prepare SSH keys
-  run: |
-    set -e
-    mkdir -p ~/.ssh
-    umask 077
-    # write keys
-    cat > ~/.ssh/id_vm_primary <<'KEY'
+name: Auto Restore VM
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/5 * * * *'
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write SSH keys & known_hosts
+        run: |
+          set -e
+          mkdir -p ~/.ssh
+          umask 077
+          cat > ~/.ssh/id_vm_primary <<'KEY'
 ${{ secrets.VM_SSH_PRIVATE_KEY_PRIMARY }}
 KEY
-    cat > ~/.ssh/id_vm_fallback <<'KEY'
+          cat > ~/.ssh/id_vm_fallback <<'KEY'
 ${{ secrets.VM_SSH_PRIVATE_KEY_FALLBACK }}
 KEY
-    # known hosts
-    ssh-keyscan -H github.com >> ~/.ssh/known_hosts
-    ssh-keyscan -H ${{ secrets.VM_HOST }} >> ~/.ssh/known_hosts || true
+          ssh-keyscan -H github.com >> ~/.ssh/known_hosts
+          ssh-keyscan -H ${{ secrets.VM_HOST }} >> ~/.ssh/known_hosts || true
 
-- name: Pick working key (try PRIMARY then FALLBACK)
-  id: pickkey
-  run: |
-    set -e
-    SSH="ssh -o BatchMode=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -p ${{ secrets.VM_PORT }}"
-    HOST="${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}"
+      - name: Pick working key (try PRIMARY then FALLBACK)
+        id: pickkey
+        run: |
+          set -e
+          SSH="ssh -o BatchMode=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -p ${{ secrets.VM_PORT }}"
+          HOST="${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}"
+          echo "Trying PRIMARY..."
+          if $SSH -i ~/.ssh/id_vm_primary "$HOST" 'echo OK'; then
+            echo "selected=primary" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Trying FALLBACK..."
+          if $SSH -i ~/.ssh/id_vm_fallback "$HOST" 'echo OK'; then
+            echo "selected=fallback" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Both keys failed or VM offline."; exit 0
 
-    echo "Trying PRIMARY key..."
-    if $SSH -i ~/.ssh/id_vm_primary "$HOST" 'echo OK'; then
-      echo "selected=primary" >> $GITHUB_OUTPUT
-      exit 0
-    fi
+      - name: Ensure PRIMARY pubkey if we used FALLBACK
+        if: steps.pickkey.outputs.selected == 'fallback'
+        run: |
+          set -e
+          SSH="ssh -o BatchMode=yes -o ConnectTimeout=15 -o IdentitiesOnly=yes -p ${{ secrets.VM_PORT }}"
+          HOST="${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}"
+          $SSH -i ~/.ssh/id_vm_fallback "$HOST" "bash -lc '
+            set -Eeuo pipefail
+            mkdir -p ~/.ssh
+            touch ~/.ssh/authorized_keys
+            grep -qF \"${{ secrets.VM_SSH_PUBLIC_KEY_PRIMARY }}\" ~/.ssh/authorized_keys || \
+              echo \"${{ secrets.VM_SSH_PUBLIC_KEY_PRIMARY }}\" >> ~/.ssh/authorized_keys
+            chmod 700 ~/.ssh
+            chmod 600 ~/.ssh/authorized_keys
+          '"
 
-    echo "Trying FALLBACK key..."
-    if $SSH -i ~/.ssh/id_vm_fallback "$HOST" 'echo OK'; then
-      echo "selected=fallback" >> $GITHUB_OUTPUT
-      exit 0
-    fi
+      - name: Run quickstart (idempotent)
+        if: steps.pickkey.outputs.selected == 'primary' || steps.pickkey.outputs.selected == 'fallback'
+        env:
+          KEYSEL: ${{ steps.pickkey.outputs.selected }}
+          VM_SUDO_PASSWORD: ${{ secrets.VM_SUDO_PASSWORD }}
+        run: |
+          set -e
+          KEYFILE="$HOME/.ssh/id_vm_${KEYSEL}"
+          SSH="ssh -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=6 -o IdentitiesOnly=yes -p ${{ secrets.VM_PORT }}"
+          HOST="${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}"
+          $SSH -i "$KEYFILE" "$HOST" 'bash -lc "
+            set -Eeuo pipefail
+            echo [QS] fetch quickstart
+            curl -fsSL https://raw.githubusercontent.com/DS553-KRM/Chord-Bot-Deployment/main/deploy/quickstart.sh -o /tmp/qs.sh
+            chmod +x /tmp/qs.sh
+            if sudo -n true 2>/dev/null; then
+              echo [QS] passwordless sudo
+              sudo /tmp/qs.sh
+            elif [ -n \"\$VM_SUDO_PASSWORD\" ]; then
+              echo [QS] askpass sudo
+              export SUDO_ASKPASS=/tmp/askpass.sh
+              printf \"#!/usr/bin/env bash\necho \\\"%s\\\"\\n\" \"\$VM_SUDO_PASSWORD\" > /tmp/askpass.sh
+              chmod +x /tmp/askpass.sh
+              sudo -A /tmp/qs.sh
+            else
+              echo [QS] no sudo
+              /tmp/qs.sh
+            fi
+          "'
 
-    echo "Both keys failed (VM offline or keys not authorized)."
-    exit 0  # let the scheduler retry later
-
-- name: Ensure PRIMARY pubkey is installed if we used FALLBACK
-  if: steps.pickkey.outputs.selected == 'fallback'
-  run: |
-    set -e
-    SSH="ssh -o BatchMode=yes -o ConnectTimeout=15 -o IdentitiesOnly=yes -p ${{ secrets.VM_PORT }}"
-    HOST="${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}"
-    # append your PRIMARY public key so next run can use it
-    $SSH -i ~/.ssh/id_vm_fallback "$HOST" "bash -lc '
-      set -Eeuo pipefail
-      mkdir -p ~/.ssh
-      touch ~/.ssh/authorized_keys
-      grep -qF \"${{ secrets.VM_SSH_PUBLIC_KEY_PRIMARY }}\" ~/.ssh/authorized_keys || \
-        echo \"${{ secrets.VM_SSH_PUBLIC_KEY_PRIMARY }}\" >> ~/.ssh/authorized_keys
-      chmod 700 ~/.ssh
-      chmod 600 ~/.ssh/authorized_keys
-    '"
-
-- name: Run quickstart (with the selected key)
-  if: steps.pickkey.outputs.selected == 'primary' || steps.pickkey.outputs.selected == 'fallback'
-  env:
-    KEYSEL: ${{ steps.pickkey.outputs.selected }}
-    VM_SUDO_PASSWORD: ${{ secrets.VM_SUDO_PASSWORD }}
-  run: |
-    set -e
-    KEYFILE="~/.ssh/id_vm_${KEYSEL}"
-    SSH="ssh -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=6 -o IdentitiesOnly=yes -p ${{ secrets.VM_PORT }}"
-    HOST="${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}"
-
-    $SSH -i $KEYFILE "$HOST" 'bash -lc "
-      set -Eeuo pipefail
-      echo [QS] fetch quickstart
-      curl -fsSL https://raw.githubusercontent.com/DS553-KRM/Chord-Bot-Deployment/main/deploy/quickstart.sh -o /tmp/qs.sh
-      chmod +x /tmp/qs.sh
-      if sudo -n true 2>/dev/null; then
-        echo [QS] running with passwordless sudo
-        sudo /tmp/qs.sh
-      elif [ -n \"\$VM_SUDO_PASSWORD\" ]; then
-        echo [QS] running with askpass sudo
-        export SUDO_ASKPASS=/tmp/askpass.sh
-        printf \"#!/usr/bin/env bash\necho \\\"%s\\\"\\n\" \"\$VM_SUDO_PASSWORD\" > /tmp/askpass.sh
-        chmod +x /tmp/askpass.sh
-        sudo -A /tmp/qs.sh
-      else
-        echo [QS] running without sudo (may fail if image requires sudo)
-        /tmp/qs.sh
-      fi
-    "'
-
-- name: Probe services
-  if: steps.pickkey.outputs.selected == 'primary' || steps.pickkey.outputs.selected == 'fallback'
-  run: |
-    set -e
-    KEYFILE="~/.ssh/id_vm_${{ steps.pickkey.outputs.selected }}"
-    SSH="ssh -o BatchMode=yes -o IdentitiesOnly=yes -p ${{ secrets.VM_PORT }}"
-    HOST="${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}"
-    $SSH -i $KEYFILE "$HOST" 'bash -lc "
-      sudo systemctl --no-pager status chord-bot-api.service || true
-      sudo ss -tulpn | grep -E \":(8000|7861)\\b\" || true
-      curl -sSI http://localhost:8000 | head -n1 || true
-    "'
+      - name: Probe services
+        if: steps.pickkey.outputs.selected == 'primary' || steps.pickkey.outputs.selected == 'fallback'
+        run: |
+          set -e
+          KEYFILE="$HOME/.ssh/id_vm_${{ steps.pickkey.outputs.selected }}"
+          SSH="ssh -o BatchMode=yes -o IdentitiesOnly=yes -p ${{ secrets.VM_PORT }}"
+          HOST="${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}"
+          $SSH -i "$KEYFILE" "$HOST" 'bash -lc "
+            sudo systemctl --no-pager status chord-bot-api.service || true
+            sudo ss -tulpn | grep -E \":(8000|7861)\\b\" || true
+            curl -sSI http://localhost:8000 | head -n1 || true
+          "'
